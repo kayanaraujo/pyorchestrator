@@ -1,45 +1,48 @@
 import boto3
-import botocore.exceptions
-import click
+import random
+
+
+def get_subnet_id(client) -> str:
+
+    result = client.describe_subnets(DryRun=False)
+
+    if len(result["Subnets"]) == 0:
+        raise ValueError("No subnets found!")
+
+    index = random.randint(0, len(result["Subnets"]))
+
+    return result["Subnets"][index]["SubnetId"]
 
 
 def create_instance(params: dict) -> str:
-    try:
-        ec2 = boto3.client("ec2")
+    """
+    Creates a VM instance with given parameters
+    """
+    client = boto3.client("ec2")
 
-        instance_params = {
-            "ImageId": params["ami"],
-            "InstanceType": params["instance_type"],
-            "SubnetId": params["subnet_id"],
-            "SecurityGroupIds": params["security_group_ids"],
-            "MinCount": 1,
-            "MaxCount": 1,
-        }
+    instance_params = {
+        "ImageId": params["image"],
+        "InstanceType": params["size"],
+        "SubnetId": get_subnet_id(client),
+        "MinCount": 1,
+        "MaxCount": 1,
+        "TagSpecifications": [
+            {
+                "ResourceType": "instance",
+                "Tags": [{"Key": "Name", "Value": params["name"]}],
+            }
+        ],
+    }
 
-        if "key_name" in params and params["key_name"]:
-            instance_params["KeyName"] = params["key_name"]
+    if "key_name" in params and params["key_name"]:
+        instance_params["KeyName"] = params["key_name"]
 
-        instance = ec2.run_instances(**instance_params)
+    instance = client.run_instances(**instance_params)
 
-        return instance["Instances"][0]["InstanceId"]
-    except botocore.exceptions.NoCredentialsError:
-        click.echo("Error: No valid AWS credentials found.")
-        exit(1)
-    except botocore.exceptions.PartialCredentialsError:
-        click.echo("Error: Partial AWS credentials found.")
-        exit(1)
-    except botocore.exceptions.EndpointConnectionError as e:
-        click.echo(f"Error: Could not connect to the endpoint. {e}")
-        exit(1)
-    except botocore.exceptions.ClientError as e:
-        click.echo(f"Client error: {e}")
-        exit(1)
-    except Exception as e:
-        click.echo(f"An unexpected error occurred: {e}")
-        exit(1)
+    return instance["Instances"][0]["InstanceId"]
 
 
-def delete_instances(instance_ids: list[str]):
+def delete_instances(instance_ids: list[str]) -> None:
     """
     Terminates the specified or a list of EC2 instances.
 
@@ -49,21 +52,32 @@ def delete_instances(instance_ids: list[str]):
         None
     """
 
-    try:
-        ec2 = boto3.client("ec2")
-        ec2.terminate_instances(InstanceIds=instance_ids)
-    except botocore.exceptions.NoCredentialsError:
-        click.echo("Error: No valid AWS credentials found.")
-        exit(1)
-    except botocore.exceptions.PartialCredentialsError:
-        click.echo("Error: Partial AWS credentials found.")
-        exit(1)
-    except botocore.exceptions.EndpointConnectionError as e:
-        click.echo(f"Error: Could not connect to the endpoint. {e}")
-        exit(1)
-    except botocore.exceptions.ClientError as e:
-        click.echo(f"Client error: {e}")
-        exit(1)
-    except Exception as e:
-        click.echo(f"An unexpected error occurred: {e}")
-        exit(1)
+    ec2 = boto3.client("ec2")
+    ec2.terminate_instances(InstanceIds=instance_ids)
+
+
+def list_instances() -> list[dict]:
+    """
+    List EC2 instances with specific states.
+    This function uses the boto3 library to connect to the AWS EC2 service and
+    retrieve a list of instances that are in the "running", "pending", or "stopped" states.
+    Returns:
+        list[dict]: A list of dictionaries, each containing details of an EC2 instance.
+    """
+
+    client = boto3.client("ec2")
+
+    instances = client.describe_instances(
+        DryRun=False,
+        Filters=[
+            {
+                "Name": "instance-state-name",
+                "Values": ["running", "pending", "stopped"],
+            }
+        ],
+    )
+
+    if len(instances["Reservations"]) > 0:
+        return instances["Reservations"][0]["Instances"]
+
+    return []

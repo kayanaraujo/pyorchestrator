@@ -1,6 +1,7 @@
 import click
-import pyorchestrator.reader as reader
+import botocore.exceptions
 import pyorchestrator.awsmanager as awsmanager
+from prettytable import PrettyTable
 
 
 @click.group()
@@ -9,30 +10,53 @@ def vm():
 
 
 @click.command()
+@click.option("--name", type=str, help="The desired VM name")
+@click.option("--size", type=str, help="The desired VM size")
+@click.option("--image", type=str, help="The base image to create the VM")
 @click.option(
-    "-f",
-    "--file",
-    type=str,
-    help="The YAML file that contains all the required attributes",
+    "--ssh-key", type=str, help="The SSH key-pair used to connect into the VM"
 )
-def create(file):
+@click.option(
+    "--provider",
+    type=click.Choice(["aws"]),
+    help="The cloud provider desired to create the resources.",
+)
+def create(name, size, image, ssh_key, provider):
     """Creates a virtual machine on Cloud"""
 
+    error_tag = click.style("ERROR", bold=True, fg="red")
+
     try:
-        if not file:
-            raise click.BadParameter(
-                "You must inform a valid YAML file.", param_hint="--file"
+
+        params = {}
+
+        if not name:
+            raise ValueError(f"{error_tag}: A name must be informed")
+
+        params["name"] = name
+
+        if not size:
+            raise ValueError(f"{error_tag}: You must set the hardware size")
+
+        params["size"] = size
+
+        if not image:
+            raise ValueError(f"{error_tag}: The image must be defined")
+
+        params["image"] = image
+        params["ssh_key"] = ssh_key
+
+        if not provider:
+            raise ValueError(f"{error_tag}: The provider must be defined")
+
+        if provider == "aws":
+            vm_id = awsmanager.create_instance(params)
+            click.echo(
+                f"VM created with ID: {click.style(vm_id, bold=True, fg='green')}"
             )
-
-        yaml_file = reader.read_file(file)
-
-        for vm in yaml_file:
-            if vm["provider"] == "aws":
-                vm_id = awsmanager.create_instance(vm["specs"])
-                click.echo(f"VM created with ID: {vm_id}")
-
-    except click.BadParameter as error:
-        click.echo(error)
+    except (ValueError, botocore.exceptions.ClientError) as e:
+        click.echo(e)
+        exit(1)
 
 
 @click.command()
@@ -46,8 +70,37 @@ def delete(id, provider):
     if provider == "aws":
         awsmanager.delete_instances([id])
 
-    click.echo(f"Deleted VM with ID: {id}")
+    click.echo(f"Deleted VM with ID: {click.style(id, bold=True)}")
+
+
+@click.command()
+@click.option(
+    "--provider",
+    type=str,
+    help="The cloud provider where it will show the VMs",
+)
+def list(provider):
+    """Lists all running/stopped VMs"""
+
+    if not provider:
+        raise click.BadParameter(f"You must inform a provider.")
+
+    if provider == "aws":
+        instances = awsmanager.list_instances()
+
+    table = PrettyTable()
+
+    if len(instances) > 0:
+        table.field_names = ["ID", "Name", "Public IP", "State", "Region"]
+
+        for instence in instances:
+            table.add_row(...)
+
+        click.echo(table)
+    else:
+        click.echo("No instances active")
 
 
 vm.add_command(create)
 vm.add_command(delete)
+vm.add_command(list)
