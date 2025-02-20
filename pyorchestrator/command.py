@@ -93,12 +93,27 @@ def list(provider):
     if len(instances) > 0:
         table.field_names = ["ID", "Name", "Public IP", "State", "Region"]
 
-        for instence in instances:
-            table.add_row(...)
+        for instance in instances:
+            vm_name = None
+
+            for tag in instance["Tags"]:
+                if tag["Key"] == "Name":
+                    vm_name = tag["Value"]
+                    break
+
+            table.add_row(
+                [
+                    instance["InstanceId"],
+                    vm_name,
+                    instance["PublicIpAddress"],
+                    instance["State"]["Name"],
+                    instance["Placement"]["AvailabilityZone"],
+                ]
+            )
 
         click.echo(table)
     else:
-        click.echo("No instances active")
+        click.echo("No active instances")
 
 
 vm.add_command(create)
