@@ -67,10 +67,14 @@ def create(name, size, image, ssh_key, provider):
 def delete(id, provider):
     """Deletes a virtual machine on Cloud"""
 
-    if provider == "aws":
-        awsmanager.delete_instances([id])
+    try:
+        if provider == "aws":
+            awsmanager.delete_instances([id])
 
-    click.echo(f"Deleted VM with ID: {click.style(id, bold=True)}")
+        click.echo(f"Deleted VM with ID: {click.style(id, bold=True)}")
+    except (ValueError, botocore.exceptions.ClientError) as e:
+        click.echo(e)
+        exit(1)
 
 
 @click.command()
@@ -82,38 +86,47 @@ def delete(id, provider):
 def list(provider):
     """Lists all running/stopped VMs"""
 
-    if not provider:
-        raise click.BadParameter(f"You must inform a provider.")
+    try:
 
-    if provider == "aws":
-        instances = awsmanager.list_instances()
+        if not provider:
+            raise click.BadParameter(f"You must inform a provider.")
 
-    table = PrettyTable()
+        if provider == "aws":
+            instances = awsmanager.list_instances()
 
-    if len(instances) > 0:
-        table.field_names = ["ID", "Name", "Public IP", "State", "Region"]
+        table = PrettyTable()
 
-        for instance in instances:
-            vm_name = None
+        if len(instances) > 0:
+            table.field_names = ["ID", "Name", "Public IP", "State", "Region"]
 
-            for tag in instance["Tags"]:
-                if tag["Key"] == "Name":
-                    vm_name = tag["Value"]
-                    break
+            for instance in instances:
+                vm_name = None
 
-            table.add_row(
-                [
-                    instance["InstanceId"],
-                    vm_name,
-                    instance["PublicIpAddress"],
-                    instance["State"]["Name"],
-                    instance["Placement"]["AvailabilityZone"],
-                ]
-            )
+                for tag in instance["Tags"]:
+                    if tag["Key"] == "Name":
+                        vm_name = tag["Value"]
+                        break
 
-        click.echo(table)
-    else:
-        click.echo("No active instances")
+                table.add_row(
+                    [
+                        instance["InstanceId"],
+                        vm_name,
+                        instance["PublicIpAddress"],
+                        instance["State"]["Name"],
+                        instance["Placement"]["AvailabilityZone"],
+                    ]
+                )
+
+            click.echo(table)
+        else:
+            click.echo("No active instances")
+    except (
+        ValueError,
+        botocore.exceptions.ClientError,
+        click.BadParameter,
+    ) as e:
+        click.echo(e)
+        exit(1)
 
 
 vm.add_command(create)
